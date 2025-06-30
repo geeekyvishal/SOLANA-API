@@ -8,8 +8,6 @@ use solana_program::{
 };
 use spl_token::instruction::initialize_mint;
 use base64;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 
 #[derive(Deserialize)]
 pub struct CreateTokenRequest {
@@ -73,7 +71,7 @@ pub async fn create_token(Json(payload): Json<CreateTokenRequest>) -> Json<serde
         })
         .collect();
 
-    let encoded_data = STANDARD.encode(ix.data);
+    let encoded_data = base64::encode(ix.data);
 
     Json(json!({
         "success": true,
@@ -84,8 +82,6 @@ pub async fn create_token(Json(payload): Json<CreateTokenRequest>) -> Json<serde
         }
     }))
 }
-
-
 
 #[derive(Deserialize)]
 pub struct MintTokenRequest {
@@ -127,7 +123,7 @@ pub async fn mint_token(Json(payload): Json<MintTokenRequest>) -> Json<serde_jso
                     "is_writable": a.is_writable
                 })
             }).collect::<Vec<_>>(),
-            "instruction_data": STANDARD.encode(ix.data)
+            "instruction_data": base64::encode(ix.data)
         }
     }))
 }

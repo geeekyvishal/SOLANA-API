@@ -4,11 +4,11 @@ use serde_json::json;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    system_program,
+    system_instruction,
 };
 use spl_token::instruction::transfer as token_transfer;
 use std::str::FromStr;
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64;
 
 #[derive(Deserialize)]
 pub struct SendSolRequest {
@@ -26,54 +26,66 @@ pub struct SendTokenRequest {
 }
 
 pub async fn send_sol(Json(payload): Json<SendSolRequest>) -> Json<serde_json::Value> {
-    let from = Pubkey::from_str(&payload.from);
-    let to = Pubkey::from_str(&payload.to);
-
-    if from.is_err() || to.is_err() {
-        return Json(json!({ "success": false, "error": "Invalid pubkey(s)" }));
+    // Validate lamports amount (must be positive)
+    if payload.lamports == 0 {
+        return Json(json!({ "success": false, "error": "Invalid lamports amount" }));
     }
 
-    // let ix = solana_sdk::system_instruction::transfer(&from.unwrap(), &to.unwrap(), payload.lamports);
-    use solana_program::system_instruction;
+    let from = match Pubkey::from_str(&payload.from) {
+        Ok(pk) => pk,
+        Err(_) => return Json(json!({ "success": false, "error": "Invalid from pubkey" })),
+    };
 
-    let from = Pubkey::from_str(&payload.from).unwrap();
-    let to = Pubkey::from_str(&payload.to).unwrap();
+    let to = match Pubkey::from_str(&payload.to) {
+        Ok(pk) => pk,
+        Err(_) => return Json(json!({ "success": false, "error": "Invalid to pubkey" })),
+    };
+
     let ix = system_instruction::transfer(&from, &to, payload.lamports);
 
-
+    // Return response matching the spec format
     Json(json!({
         "success": true,
         "data": {
             "program_id": ix.program_id.to_string(),
             "accounts": ix.accounts.iter().map(|a| a.pubkey.to_string()).collect::<Vec<_>>(),
-            "instruction_data": STANDARD.encode(ix.data)
+            "instruction_data": base64::encode(ix.data)
         }
     }))
 }
 
 pub async fn send_token(Json(payload): Json<SendTokenRequest>) -> Json<serde_json::Value> {
-    let destination = Pubkey::from_str(&payload.destination);
-    let mint = Pubkey::from_str(&payload.mint);
-    let owner = Pubkey::from_str(&payload.owner);
-
-    if destination.is_err() || mint.is_err() || owner.is_err() {
-        return Json(json!({ "success": false, "error": "Invalid pubkey(s)" }));
+    // Validate amount (must be positive)
+    if payload.amount == 0 {
+        return Json(json!({ "success": false, "error": "Invalid token amount" }));
     }
 
-    let destination = destination.unwrap();
-    let owner = owner.unwrap();
-    let mint = mint.unwrap();
+    let destination = match Pubkey::from_str(&payload.destination) {
+        Ok(pk) => pk,
+        Err(_) => return Json(json!({ "success": false, "error": "Invalid destination pubkey" })),
+    };
 
-    // This is a dummy simplification - for a real tx you’d lookup token accounts!
-    let source_token_account = owner;
-    let destination_token_account = destination;
+    let mint = match Pubkey::from_str(&payload.mint) {
+        Ok(pk) => pk,
+        Err(_) => return Json(json!({ "success": false, "error": "Invalid mint pubkey" })),
+    };
+
+    let owner = match Pubkey::from_str(&payload.owner) {
+        Ok(pk) => pk,
+        Err(_) => return Json(json!({ "success": false, "error": "Invalid owner pubkey" })),
+    };
+
+    // For a real implementation, you'd derive the associated token accounts
+    // For now, we'll use the provided addresses as token accounts
+    let source_token_account = owner; // This is simplified
+    let destination_token_account = destination; // This is simplified
 
     let ix = match token_transfer(
         &spl_token::ID,
         &source_token_account,
         &destination_token_account,
         &owner,
-        &[],
+        &[], // No multisig signers
         payload.amount,
     ) {
         Ok(ix) => ix,
@@ -90,7 +102,7 @@ pub async fn send_token(Json(payload): Json<SendTokenRequest>) -> Json<serde_jso
                     "isSigner": a.is_signer
                 })
             }).collect::<Vec<_>>(),
-            "instruction_data": STANDARD.encode(ix.data)
+            "instruction_data": base64::encode(ix.data)
         }
     }))
 }
