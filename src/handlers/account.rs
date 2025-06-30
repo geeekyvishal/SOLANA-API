@@ -1,3 +1,4 @@
+
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -5,10 +6,7 @@ use solana_program::{instruction::AccountMeta, pubkey::Pubkey};
 use spl_token::instruction::initialize_account;
 use std::str::FromStr;
 use base64;
-
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-
 
 #[derive(Deserialize)]
 pub struct CreateAccountRequest {
@@ -61,7 +59,7 @@ pub async fn create_account(Json(payload): Json<CreateAccountRequest>) -> Json<s
     }).collect();
 
     // Encode instruction data
-    let encoded_data = STANDARD.encode(ix.data);
+    let encoded_data = base64::engine::general_purpose::STANDARD.encode(ix.data);
 
     Json(json!({
         "success": true,

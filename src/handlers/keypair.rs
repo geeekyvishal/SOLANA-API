@@ -1,21 +1,14 @@
 use axum::Json;
-use serde_json::json;
-use ed25519_dalek::Keypair;
 use rand::rngs::OsRng;
-use bs58;
+use solana_sdk::signature::{Keypair, Signer};
+use crate::{error::AppError, types::{ApiResponse, KeypairResponse}};
 
-pub async fn generate_keypair() -> Json<serde_json::Value> {
-    let mut csprng = OsRng {};
-    let keypair: Keypair = Keypair::generate(&mut csprng);
-
-    let pubkey = bs58::encode(keypair.public.as_bytes()).into_string();
+/// Generate a new Solana keypair
+pub async fn generate_keypair() -> Result<Json<ApiResponse<KeypairResponse>>, AppError> {
+    let keypair = Keypair::new();
+    let pubkey = keypair.pubkey().to_string();
     let secret = bs58::encode(keypair.to_bytes()).into_string();
 
-    Json(json!({
-        "success": true,
-        "data": {
-            "pubkey": pubkey,
-            "secret": secret
-        }
-    }))
+    let response = KeypairResponse { pubkey, secret };
+    Ok(Json(ApiResponse::success(response)))
 }

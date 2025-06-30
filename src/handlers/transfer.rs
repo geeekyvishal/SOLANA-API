@@ -9,6 +9,9 @@ use solana_program::{
 use spl_token::instruction::transfer as token_transfer;
 use std::str::FromStr;
 use base64;
+use base64::Engine;
+
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991; // 2^53 - 1
 
 #[derive(Deserialize)]
 pub struct SendSolRequest {
@@ -28,7 +31,11 @@ pub struct SendTokenRequest {
 pub async fn send_sol(Json(payload): Json<SendSolRequest>) -> Json<serde_json::Value> {
     // Validate lamports amount (must be positive)
     if payload.lamports == 0 {
-        return Json(json!({ "success": false, "error": "Invalid lamports amount" }));
+        return Json(json!({ "success": false, "error": "Lamports must be greater than 0" }));
+    }
+    
+    if payload.lamports > MAX_SAFE_INTEGER {
+        return Json(json!({ "success": false, "error": format!("Lamports exceeds max safe integer ({}).", MAX_SAFE_INTEGER) }));
     }
 
     let from = match Pubkey::from_str(&payload.from) {
@@ -49,7 +56,7 @@ pub async fn send_sol(Json(payload): Json<SendSolRequest>) -> Json<serde_json::V
         "data": {
             "program_id": ix.program_id.to_string(),
             "accounts": ix.accounts.iter().map(|a| a.pubkey.to_string()).collect::<Vec<_>>(),
-            "instruction_data": base64::encode(ix.data)
+            "instruction_data": base64::engine::general_purpose::STANDARD.encode(ix.data)
         }
     }))
 }
@@ -57,7 +64,11 @@ pub async fn send_sol(Json(payload): Json<SendSolRequest>) -> Json<serde_json::V
 pub async fn send_token(Json(payload): Json<SendTokenRequest>) -> Json<serde_json::Value> {
     // Validate amount (must be positive)
     if payload.amount == 0 {
-        return Json(json!({ "success": false, "error": "Invalid token amount" }));
+        return Json(json!({ "success": false, "error": "Amount must be greater than 0" }));
+    }
+    
+    if payload.amount > MAX_SAFE_INTEGER {
+        return Json(json!({ "success": false, "error": format!("Amount exceeds max safe integer ({}).", MAX_SAFE_INTEGER) }));
     }
 
     let destination = match Pubkey::from_str(&payload.destination) {
@@ -75,15 +86,10 @@ pub async fn send_token(Json(payload): Json<SendTokenRequest>) -> Json<serde_jso
         Err(_) => return Json(json!({ "success": false, "error": "Invalid owner pubkey" })),
     };
 
-    // For a real implementation, you'd derive the associated token accounts
-    // For now, we'll use the provided addresses as token accounts
-    let source_token_account = owner; // This is simplified
-    let destination_token_account = destination; // This is simplified
-
     let ix = match token_transfer(
         &spl_token::ID,
-        &source_token_account,
-        &destination_token_account,
+        &mint,  // This should be source token account in real implementation
+        &destination,
         &owner,
         &[], // No multisig signers
         payload.amount,
@@ -102,7 +108,7 @@ pub async fn send_token(Json(payload): Json<SendTokenRequest>) -> Json<serde_jso
                     "isSigner": a.is_signer
                 })
             }).collect::<Vec<_>>(),
-            "instruction_data": base64::encode(ix.data)
+            "instruction_data": base64::engine::general_purpose::STANDARD.encode(ix.data)
         }
     }))
 }

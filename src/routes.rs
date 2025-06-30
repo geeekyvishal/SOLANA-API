@@ -1,25 +1,33 @@
-use axum::{
-    routing::{get, post},
-    Router,
-};
+use axum::{routing::{get, post}, Router};
+use crate::handlers;
 
-use crate::handlers::{
-    keypair::generate_keypair,
-    token::{create_token, mint_token},
-    message::{sign_message, verify_message},
-    transfer::{send_sol, send_token},
-    account::create_account,
-};
+/// Health check routes
+pub fn health_routes() -> Router {
+    Router::new().route("/health", get(handlers::health::health_check))
+}
 
-pub fn create_router() -> Router {
+/// Keypair management routes
+pub fn keypair_routes() -> Router {
+    Router::new().route("/keypair", post(handlers::keypair::generate_keypair))
+}
+
+/// Token-related routes
+pub fn token_routes() -> Router {
     Router::new()
-        .route("/", get(|| async { "Solana HTTP Server is running!" }))
-        .route("/keypair", post(generate_keypair))
-        .route("/token/create", post(create_token))
-        .route("/token/mint", post(mint_token))
-        .route("/message/sign", post(sign_message))
-        .route("/message/verify", post(verify_message))
-        .route("/send/sol", post(send_sol))
-        .route("/send/token", post(send_token))
-        .route("/account/create", post(create_account))
+        .route("/token/create", post(handlers::token::create_token))
+        .route("/token/mint", post(handlers::token::mint_token))
+}
+
+/// Message signing routes
+pub fn message_routes() -> Router {
+    Router::new()
+        .route("/message/sign", post(handlers::message::sign_message))
+        .route("/message/verify", post(handlers::message::verify_message))
+}
+
+/// Send transaction routes
+pub fn send_routes() -> Router {
+    Router::new()
+        .route("/send/sol", post(handlers::send::send_sol))
+        .route("/send/token", post(handlers::send::send_token))
 }

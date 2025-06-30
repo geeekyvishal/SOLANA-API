@@ -1,129 +1,108 @@
-use std::str::FromStr;
-use axum::Json;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use solana_program::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
+use axum::{extract::Json as AxumJson, Json};
+use base64::Engine;
+use spl_token::instruction as token_instruction;
+use solana_program::pubkey::Pubkey;
+use crate::{
+    error::AppError,
+    types::{
+        ApiResponse, TokenCreateRequest, TokenCreateResponse, TokenMintRequest,
+        TokenMintResponse, AccountMetaResponse,
+    },
+    utils::{validate_amount, validate_different_pubkeys},
 };
-use spl_token::instruction::initialize_mint;
-use base64;
 
-#[derive(Deserialize)]
-pub struct CreateTokenRequest {
-    mint_authority: String,
-    mint: String,
-    decimals: u8,
-}
+/// Create a new token mint
+pub async fn create_token(
+    AxumJson(req): AxumJson<TokenCreateRequest>,
+) -> Result<Json<ApiResponse<TokenCreateResponse>>, AppError> {
+    let mint_authority = req
+        .mint_authority
+        .parse::<Pubkey>()
+        .map_err(|_| AppError::BadRequest("Invalid mintAuthority pubkey".to_string()))?;
+    let mint = req.mint.parse::<Pubkey>()
+        .map_err(|_| AppError::BadRequest("Invalid mint pubkey".to_string()))?;
 
-#[derive(Serialize)]
-pub struct CreateTokenResponse {
-    program_id: String,
-    accounts: Vec<AccountMetaJson>,
-    instruction_data: String,
-}
+    // Convert to solana_sdk::pubkey::Pubkey for the instruction
+    let mint_sdk = solana_sdk::pubkey::Pubkey::from(mint.to_bytes());
+    let mint_authority_sdk = solana_sdk::pubkey::Pubkey::from(mint_authority.to_bytes());
 
-#[derive(Serialize)]
-pub struct AccountMetaJson {
-    pubkey: String,
-    is_signer: bool,
-    is_writable: bool,
-}
-
-pub async fn create_token(Json(payload): Json<CreateTokenRequest>) -> Json<serde_json::Value> {
-    // Parse input pubkeys
-    let mint_authority = match Pubkey::from_str(&payload.mint_authority) {
-        Ok(pk) => pk,
-        Err(_) => {
-            return Json(json!({ "success": false, "error": "Invalid mint_authority pubkey" }));
-        }
-    };
-
-    let mint = match Pubkey::from_str(&payload.mint) {
-        Ok(pk) => pk,
-        Err(_) => {
-            return Json(json!({ "success": false, "error": "Invalid mint pubkey" }));
-        }
-    };
-
-    // Create initialize_mint instruction
-    let ix = match initialize_mint(
-        &spl_token::ID,
-        &mint,
-        &mint_authority,
+    let ix = token_instruction::initialize_mint(
+        &spl_token::id(),
+        &mint_sdk,
+        &mint_authority_sdk,
         None,
-        payload.decimals,
-    ) {
-        Ok(ix) => ix,
-        Err(e) => {
-            return Json(json!({ "success": false, "error": format!("Failed to build instruction: {e}") }));
-        }
-    };
+        req.decimals,
+    )
+    .map_err(|e| AppError::BadRequest(format!("Failed to create instruction: {}", e)))?;
 
-    // Convert accounts to serializable format
-    let accounts_json: Vec<AccountMetaJson> = ix
+    let accounts = ix
         .accounts
         .iter()
-        .map(|acct| AccountMetaJson {
-            pubkey: acct.pubkey.to_string(),
-            is_signer: acct.is_signer,
-            is_writable: acct.is_writable,
+        .map(|meta| AccountMetaResponse {
+            pubkey: meta.pubkey.to_string(),
+            is_signer: meta.is_signer,
+            is_writable: meta.is_writable,
         })
         .collect();
 
-    let encoded_data = base64::encode(ix.data);
+    let instruction_data = base64::engine::general_purpose::STANDARD.encode(&ix.data);
 
-    Json(json!({
-        "success": true,
-        "data": {
-            "program_id": ix.program_id.to_string(),
-            "accounts": accounts_json,
-            "instruction_data": encoded_data
-        }
-    }))
-}
-
-#[derive(Deserialize)]
-pub struct MintTokenRequest {
-    mint: String,
-    destination: String,
-    authority: String,
-    amount: u64,
-}
-
-pub async fn mint_token(Json(payload): Json<MintTokenRequest>) -> Json<serde_json::Value> {
-    let mint = Pubkey::from_str(&payload.mint);
-    let destination = Pubkey::from_str(&payload.destination);
-    let authority = Pubkey::from_str(&payload.authority);
-
-    if mint.is_err() || destination.is_err() || authority.is_err() {
-        return Json(json!({ "success": false, "error": "Invalid pubkey(s)" }));
-    }
-
-    let ix = match spl_token::instruction::mint_to(
-        &spl_token::ID,
-        &mint.unwrap(),
-        &destination.unwrap(),
-        &authority.unwrap(),
-        &[],
-        payload.amount,
-    ) {
-        Ok(ix) => ix,
-        Err(e) => return Json(json!({ "success": false, "error": format!("Failed to build instruction: {e}") })),
+    let response = TokenCreateResponse {
+        program_id: ix.program_id.to_string(),
+        accounts,
+        instruction_data,
     };
 
-    Json(json!({
-        "success": true,
-        "data": {
-            "program_id": ix.program_id.to_string(),
-            "accounts": ix.accounts.iter().map(|a| {
-                json!({
-                    "pubkey": a.pubkey.to_string(),
-                    "is_signer": a.is_signer,
-                    "is_writable": a.is_writable
-                })
-            }).collect::<Vec<_>>(),
-            "instruction_data": base64::encode(ix.data)
-        }
-    }))
+    Ok(Json(ApiResponse::success(response)))
+}
+
+
+/// Mint tokens to a destination account
+pub async fn mint_token(
+    AxumJson(req): AxumJson<TokenMintRequest>,
+) -> Result<Json<ApiResponse<TokenMintResponse>>, AppError> {
+    let mint = req.mint.parse::<Pubkey>()
+        .map_err(|_| AppError::BadRequest("Invalid mint pubkey".to_string()))?;
+    let destination = req.destination.parse::<Pubkey>()
+        .map_err(|_| AppError::BadRequest("Invalid destination pubkey".to_string()))?;
+    let authority = req.authority.parse::<Pubkey>()
+        .map_err(|_| AppError::BadRequest("Invalid authority pubkey".to_string()))?;
+
+    // Convert to solana_sdk::pubkey::Pubkey for validation and instruction
+    let mint_sdk = solana_sdk::pubkey::Pubkey::from(mint.to_bytes());
+    let dest_sdk = solana_sdk::pubkey::Pubkey::from(destination.to_bytes());
+    let auth_sdk = solana_sdk::pubkey::Pubkey::from(authority.to_bytes());
+    
+    validate_different_pubkeys(&dest_sdk, &auth_sdk, "Destination", "authority")?;
+    validate_amount(req.amount, "Amount")?;
+
+    let ix = token_instruction::mint_to(
+        &spl_token::id(),
+        &mint_sdk,
+        &dest_sdk,
+        &auth_sdk,
+        &[],
+        req.amount,
+    )
+    .map_err(|e| AppError::BadRequest(format!("Failed to create instruction: {}", e)))?;
+
+    let accounts = ix
+        .accounts
+        .iter()
+        .map(|meta| AccountMetaResponse {
+            pubkey: meta.pubkey.to_string(),
+            is_signer: meta.is_signer,
+            is_writable: meta.is_writable,
+        })
+        .collect();
+
+    let instruction_data = base64::engine::general_purpose::STANDARD.encode(&ix.data);
+
+    let response = TokenMintResponse {
+        program_id: ix.program_id.to_string(),
+        accounts,
+        instruction_data,
+    };
+
+    Ok(Json(ApiResponse::success(response)))
 }
