@@ -1,0 +1,21 @@
+[package]
+name = "solana-rust-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1.37", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.4", features = ["trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+solana-client = "1.18"
+solana-sdk = "1.18"
+ed25519-dalek = { version = "1", features = ["rand_core"] }
+bs58 = "0.5"
+base64 = "0.21"
+anyhow = "1.0"
+dotenv = "0.15"
+spl-token = "8.0.0"
+solana-program = "2.3.0"
