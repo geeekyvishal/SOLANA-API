@@ -31,11 +31,11 @@ async fn main() {
         .merge(routes::send_routes())
         .layer(cors);
 
-    // Get port from environment or default to 8080
+    // Get port from environment or default to 3000
     let port = env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(8080);
+        .unwrap_or(3000);
     
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("🚀 Server listening on {}", addr);
